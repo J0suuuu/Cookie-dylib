@@ -564,29 +564,41 @@
 }
 
 - (void)importCookiesTapped {
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"cookies" ofType:@"json"];
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    if (!data) return;
+    NSString *text = UIPasteboard.generalPasteboard.string;
 
+    if (!text || text.length == 0) {
+        NSLog(@"❌ Portapapeles vacío");
+        return;
+    }
+
+    NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
     NSArray *cookiesArray = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+
+    if (![cookiesArray isKindOfClass:[NSArray class]]) {
+        NSLog(@"❌ Formato inválido");
+        return;
+    }
 
     for (NSDictionary *dict in cookiesArray) {
         NSMutableDictionary *props = [NSMutableDictionary dictionary];
         props[NSHTTPCookieName] = dict[@"name"];
         props[NSHTTPCookieValue] = dict[@"value"];
         props[NSHTTPCookieDomain] = dict[@"domain"];
-        props[NSHTTPCookiePath] = dict[@"path"];
+        props[NSHTTPCookiePath] = dict[@"path"] ?: @"/";
 
-        if (dict[@"secure"]) {
-            props[NSHTTPCookieSecure] = dict[@"secure"];
+        if ([dict[@"secure"] boolValue]) {
+            props[NSHTTPCookieSecure] = @"TRUE";
         }
 
         NSHTTPCookie *cookie = [NSHTTPCookie cookieWithProperties:props];
-        [[NSHTTPCookieStorage sharedHTTPCookieStorage] setCookie:cookie];
+        if (cookie) {
+            [[NSHTTPCookieStorage sharedHTTPCookieStorage] setCookie:cookie];
+        }
     }
 
-    [self loadCookies]; // refresca la lista
+    [self loadCookies];
 }
+
 
 - (void)openKeychainManager {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Keychain"
