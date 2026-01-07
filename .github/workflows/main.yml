@@ -1,0 +1,182 @@
+
+name: Build CookieManager Framework
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'CookieManager/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    
+    - name: Create Xcode Project Structure
+      run: |
+        # Create Xcode project directory
+        mkdir -p CookieManager.xcodeproj
+    
+    - name: Build for iOS Device
+      run: |
+        # Create a simple Xcode project file would require complex XML generation
+        # Instead, we'll use xcodebuild with a manually created project
+        # For now, let's compile directly using clang
+        
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+        echo "iOS SDK Path: $SDK_PATH"
+        
+        # Compile Objective-C files
+        mkdir -p build/obj
+        cd build/obj
+        
+        # Compile all .m files (exclude ExampleUsage.m as it's just example code)
+        for file in ../../CookieManager/*.m; do
+          filename=$(basename "$file" .m)
+          # Skip ExampleUsage.m - it's example code with intentional errors
+          if [ "$filename" = "ExampleUsage" ]; then
+            echo "Skipping $filename.m (example code)..."
+            continue
+          fi
+          echo "Compiling $filename.m..."
+          clang -c "$file" \
+            -fmodules \
+            -fobjc-arc \
+            -isysroot "$SDK_PATH" \
+            -arch arm64 \
+            -miphoneos-version-min=11.0 \
+            -I../../CookieManager \
+            -F"$SDK_PATH/System/Library/Frameworks" \
+            -o "${filename}.o" || {
+              echo "Error compiling ${filename}.m"
+              exit 1
+            }
+        done
+        
+        # Link into dynamic library
+        echo "Linking dynamic library..."
+        clang -shared \
+          -o libCookieManager.dylib \
+          *.o \
+          -fobjc-arc \
+          -isysroot "$SDK_PATH" \
+          -arch arm64 \
+          -miphoneos-version-min=11.0 \
+          -install_name @rpath/libCookieManager.dylib \
+          -framework Foundation \
+          -framework UIKit \
+          -framework WebKit
+        
+        cd ../..
+        mkdir -p build/artifacts
+        cp build/obj/libCookieManager.dylib build/artifacts/
+    
+    - name: Build for iOS Simulator
+      run: |
+        SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+        echo "iOS Simulator SDK Path: $SDK_PATH"
+        
+        # Compile Objective-C files for simulator
+        mkdir -p build/obj-sim
+        cd build/obj-sim
+        
+        # Compile all .m files (exclude ExampleUsage.m as it's just example code)
+        for file in ../../CookieManager/*.m; do
+          filename=$(basename "$file" .m)
+          # Skip ExampleUsage.m - it's example code with intentional errors
+          if [ "$filename" = "ExampleUsage" ]; then
+            echo "Skipping $filename.m (example code)..."
+            continue
+          fi
+          echo "Compiling $filename.m for simulator..."
+          clang -c "$file" \
+            -fmodules \
+            -fobjc-arc \
+            -isysroot "$SDK_PATH" \
+            -arch x86_64 \
+            -arch arm64 \
+            -mios-simulator-version-min=11.0 \
+            -I../../CookieManager \
+            -F"$SDK_PATH/System/Library/Frameworks" \
+            -o "${filename}.o" || {
+              echo "Error compiling ${filename}.m"
+              exit 1
+            }
+        done
+        
+        # Link into dynamic library for simulator
+        echo "Linking dynamic library for simulator..."
+        clang -shared \
+          -o libCookieManager.dylib \
+          *.o \
+          -fobjc-arc \
+          -isysroot "$SDK_PATH" \
+          -arch x86_64 \
+          -arch arm64 \
+          -mios-simulator-version-min=11.0 \
+          -install_name @rpath/libCookieManager.dylib \
+          -framework Foundation \
+          -framework UIKit \
+          -framework WebKit
+        
+        cd ../..
+        mkdir -p build/artifacts/simulator
+        cp build/obj-sim/libCookieManager.dylib build/artifacts/simulator/
+    
+    - name: Create Universal Binary
+      run: |
+        # Check architectures of both binaries
+        DEVICE_ARCHS=$(lipo -info build/obj/libCookieManager.dylib | awk -F': ' '{print $NF}')
+        SIM_ARCHS=$(lipo -info build/artifacts/simulator/libCookieManager.dylib | awk -F': ' '{print $NF}')
+        
+        echo "Device architectures: $DEVICE_ARCHS"
+        echo "Simulator architectures: $SIM_ARCHS"
+        
+        mkdir -p build/artifacts/universal
+        
+        # Extract unique architectures for universal binary
+        # Device has: arm64
+        # Simulator has: x86_64 arm64
+        # Universal should have: arm64 (device) + x86_64 (simulator only)
+        
+        # Extract x86_64 from simulator binary (if it exists)
+        if echo "$SIM_ARCHS" | grep -q "x86_64"; then
+          echo "Extracting x86_64 from simulator binary..."
+          lipo -thin x86_64 \
+            build/artifacts/simulator/libCookieManager.dylib \
+            -output build/artifacts/simulator/libCookieManager-x86_64.dylib
+          
+          echo "Creating universal binary (arm64 device + x86_64 simulator)..."
+          lipo -create \
+            build/obj/libCookieManager.dylib \
+            build/artifacts/simulator/libCookieManager-x86_64.dylib \
+            -output build/artifacts/universal/libCookieManager.dylib
+        else
+          echo "No x86_64 in simulator binary, using device binary as universal"
+          cp build/obj/libCookieManager.dylib build/artifacts/universal/libCookieManager.dylib
+        fi
+        
+        echo "Universal binary created at: build/artifacts/universal/libCookieManager.dylib"
+        lipo -info build/artifacts/universal/libCookieManager.dylib
+    
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: CookieManager-dylib
+        path: |
+          build/artifacts/universal/libCookieManager.dylib
+          build/artifacts/libCookieManager.dylib
+          build/artifacts/simulator/libCookieManager.dylib
+        retention-days: 30
