@@ -3,7 +3,7 @@
 //  CookieManager
 //  Beautiful menu UI for cookie management
 //
-
+#import <WebKit/WebKit.h>
 #import "CookieMenuViewController.h"
 #import "CookieManager.h"
 #import "CookieDeletionService.h"
@@ -617,7 +617,7 @@
 
     [self presentViewController:alert animated:YES completion:nil];
 }
-#import <WebKit/WebKit.h>
+
 
 - (void)deleteAllWebKitData {
     NSSet *allTypes = [WKWebsiteDataStore allWebsiteDataTypes];
