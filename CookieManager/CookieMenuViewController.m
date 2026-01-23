@@ -617,6 +617,20 @@
 
     [self presentViewController:alert animated:YES completion:nil];
 }
+#import <WebKit/WebKit.h>
+
+- (void)deleteAllWebKitData {
+    NSSet *allTypes = [WKWebsiteDataStore allWebsiteDataTypes];
+    NSDate *fromDate = [NSDate dateWithTimeIntervalSince1970:0];
+
+    WKWebsiteDataStore *store = [WKWebsiteDataStore defaultDataStore];
+
+    [store removeDataOfTypes:allTypes
+               modifiedSince:fromDate
+           completionHandler:^{
+               NSLog(@"✅ WebKit data fully cleared (cookies, cache, storage, indexedDB, etc)");
+           }];
+}
 
 - (void)listKeychainItems {
     NSDictionary *query = @{
